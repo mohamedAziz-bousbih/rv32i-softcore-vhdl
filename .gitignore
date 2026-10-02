@@ -1,0 +1,33 @@
+# Build and simulation outputs
+build/
+*.o
+*.exe
+*.elf
+*.bin
+*.cf
+*.lst
+*.vcd
+*.ghw
+*.fst
+
+# Python
+__pycache__/
+.pytest_cache/
+.venv/
+venv/
+
+# Editors and tools
+.pio/
+.vscode/
+
+# Quartus project outputs
+board/de10lite/db/
+board/de10lite/incremental_db/
+board/de10lite/output_files/
+board/de10lite/*.qws
+board/de10lite/*.rpt
+board/de10lite/*.summary
+board/de10lite/*.smsg
+board/de10lite/*.jdi
+board/de10lite/*.pin
+board/de10lite/*.sld

@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  simulation:
+    name: Unit tests and GHDL simulation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install GHDL and pytest
+        run: |
+          sudo apt-get update && sudo apt-get install -y ghdl
+          ghdl --version
+          pip install pytest
+
+      - name: Reference model and script tests
+        run: python -m pytest -q tests
+
+      - name: Simulation test suite
+        run: python scripts/run_tests.py --report build/cycles.md
+
+      - name: Cycle counts
+        run: cat build/cycles.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Synthesis check of the board top level (GHDL)
+        run: python scripts/synth_check.py
+
+  software:
+    name: Rebuild ROM images with zig
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # zig (clang + lld) is the RISC-V cross toolchain; the committed images
+      # must be exactly what the sources produce.
+      - name: Install zig
+        run: pip install ziglang==0.16.0
+
+      - name: Check committed images
+        run: python scripts/build_sw.py --check
+
+  mutation:
+    name: Mutation check of the test suite
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install GHDL
+        run: sudo apt-get update && sudo apt-get install -y ghdl
+
+      - name: Inject faults into the RTL and expect the suite to fail
+        run: python scripts/mutation_check.py

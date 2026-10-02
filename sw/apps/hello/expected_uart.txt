@@ -1,0 +1,11 @@
+Hello from RV32I
+fib_iter(47) = 2971215073 ok (# cycles, # instr, CPI #.#)
+fib_rec(15) = 610 ok (# cycles, # instr, CPI #.#)
+bubble_sort(48 words) ok (# cycles, # instr, CPI #.#)
+crc32_sw("123456789") = 0xCBF43926 ok (# cycles, # instr, CPI #.#)
+crc32_sw(256 bytes) = 0x78825239 ok (# cycles, # instr, CPI #.#)
+crc32_hw(256 bytes) = 0x78825239 ok (# cycles, # instr, CPI #.#)
+mul x32 (emulated) ok (# cycles, # instr, CPI #.#)
+div (emulated) ok (# cycles, # instr, CPI #.#)
+switches = 0x000002A5
+PASS (18 checks)

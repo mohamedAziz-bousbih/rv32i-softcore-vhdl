@@ -12,13 +12,16 @@ build/
 
 # Python
 __pycache__/
+*.pyc
 .pytest_cache/
 .venv/
 venv/
+env/
 
 # Editors and tools
 .pio/
 .vscode/
+.idea/
 
 # Quartus project outputs
 board/de10lite/db/

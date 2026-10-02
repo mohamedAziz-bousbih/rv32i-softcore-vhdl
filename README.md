@@ -40,7 +40,7 @@ of the B.Eng. Technische Informatik – Embedded Systems at BHT Berlin.
   - every program also runs on a Python instruction-set model; outcome, cycle count, retired instructions, halt PC, LEDs, UART text and the complete commit trace (every retired instruction with its register write and store) must match the RTL, and after a halt the whole register file (read through a debug port) must match too;
   - 34,510 golden vectors for the decoder, ALU, branch comparator and load/store lane logic;
   - a cycle-exact UART testbench, a board-level smoke test at the real baud rate, 71 pytest tests of the model and scripts;
-  - a mutation check that injects 25 typical bugs into the RTL, one at a time; the suite catches all of them;
+  - a mutation check that injects 26 typical bugs into the RTL, one at a time; the suite catches all of them;
   - a synthesisability check: `ghdl --synth` of the board top level must succeed without latches and must infer the ROM and the four RAM byte lanes as memories.
 - **DE10-Lite top level** with pin assignments taken from the Terasic user manual.
 
@@ -116,7 +116,7 @@ python -m pytest -q tests          # reference model and scripts (71 tests)
 python scripts/run_tests.py        # all testbenches and programs, exit code != 0 on failure
 python scripts/run_tests.py -k hazard --report build/cycles.md   # one program, cycle table
 
-python scripts/mutation_check.py   # inject 25 RTL bugs one at a time, each must be caught (about 6 min)
+python scripts/mutation_check.py   # inject 26 RTL bugs one at a time, each must be caught (several minutes)
 python scripts/synth_check.py      # ghdl --synth of the board top: no latches, ROM/RAMs inferred
 
 pip install ziglang==0.16.0        # RISC-V cross compiler (clang + lld)
@@ -126,7 +126,7 @@ python scripts/build_sw.py --check # rebuild into a temporary directory, compare
 python scripts/rv32i_iss.py sw/images/hello.hex   # run a program on the reference model only
 ```
 
-`run_tests.py` analyses the sources into `build/ghdl`, writes commit traces to `build/trace` and runs the programs in parallel; the whole suite takes about 17 s on a laptop.
+`run_tests.py` analyses the sources into `build/ghdl`, writes commit traces to `build/trace` and runs the programs in parallel; the whole suite takes about 20 s on a laptop.
 
 **Windows**: the same commands work in PowerShell or Git Bash with the Windows build of GHDL on `PATH` (or passed with `--ghdl`). Development and all local runs were done this way.
 
@@ -152,7 +152,8 @@ The two tables come from `python scripts/run_tests.py --report` and from the UAR
 | store | pass | 281 | 278 | 1.011 |
 | system | pass | 86 | 83 | 1.036 |
 | upper | pass | 82 | 79 | 1.038 |
-| halt_ecall / halt_ebreak / halt_illegal | halt as expected | 7 | 4 | |
+| halt_ecall / halt_ebreak | halt as expected | 7 | 4 | |
+| halt_illegal | halt as expected | 10 | 7 | |
 | halt_misaligned_fetch / _load / _store / _jump | halt as expected | 7 to 9 | 4 to 6 | |
 | hello (C) | pass | 190353 | 167142 | 1.139 |
 
@@ -173,7 +174,7 @@ The branch-heavy tests show the one-cycle penalty of taken branches; straight-li
 
 The CRC-32 unit needs 6.7 times fewer cycles than the bit-serial software loop; at about 6 cycles per byte, the loop that feeds it one store per byte is now the limit, not the unit. A single emulated 32-bit division (restoring division, one quotient bit per loop iteration) costs 471 cycles, which is the price of RV32I having no divide instruction.
 
-**Mutation check** (`scripts/mutation_check.py`, 360 s locally): every one of the 25 injected bugs makes at least one testbench fail, and in every case a self-check fails (a program's own result, LEDs, UART text or expected register values, or a unit testbench), not only the comparison with the reference model.
+**Mutation check** (`scripts/mutation_check.py`): every one of the 26 injected bugs makes at least one testbench fail, and in every case a self-check fails (a program's own result, LEDs, UART text or expected register values, or a unit testbench), not only the comparison with the reference model.
 
 <details>
 <summary>Injected bugs and the tests that caught them</summary>
@@ -200,6 +201,7 @@ The CRC-32 unit needs 6.7 times fewer cycles than the bit-serial software loop; 
 | JAL: link register gets pc instead of pc + 4 | hazard, hello, jump |
 | misaligned loads not detected | halt_misaligned_load |
 | imprecise halt: the older instruction in WB loses its register write | all seven halt tests |
+| the faulting instruction retires (and writes its destination) | halt_illegal, halt_misaligned_jump, halt_misaligned_load; instret and trace of all halt tests |
 | UART: bit period one cycle too long | tb_uart_tx, tb_de10lite, hello, mmio |
 | UART: write while busy restarts the frame | tb_uart_tx, mmio |
 | MTIME not writable | mmio |
@@ -230,7 +232,7 @@ tests/           pytest tests of the reference model and the scripts
 - **Forwarding** needs only one path (WB to EX) because the register file is write-through: an instruction two behind its producer reads the new value directly. `decode()` clears the write enable for `rd = x0`, so neither the register file nor the forwarding logic needs a special case for x0.
 - **Modified Harvard organisation.** Fetch has its own ROM port, so instruction and data accesses never compete and there are no structural stalls. The ROM's second port lets programs load constants, string literals and `.data` initialisers (copied to RAM by `crt0.S`). Instructions cannot be fetched from RAM; a von Neumann variant would need a shared port and an arbiter with stalls.
 - **Misaligned accesses trap** (here: halt) instead of being split into two accesses. The ISA allows either; splitting would need a multi-cycle load/store unit and complicates the precise-exception logic, while code compiled for naturally aligned data does not produce misaligned accesses. Byte and halfword stores replicate their data into all lanes and select with byte enables, so the store path has no shifter.
-- **ECALL/EBREAK/illegal instructions halt** the core, because there is no Zicsr and no trap vector. The halt is precise: the faulting instruction and the one behind it are discarded, the older one in WB still retires. The halt tests check this through the LEDs (a store behind the fault must not happen) and through the register file, which the testbench reads after the halt via a debug port of the register file (unconnected on the board, so synthesis removes it).
+- **ECALL/EBREAK/illegal instructions halt** the core, because there is no Zicsr and no trap vector. The halt is precise: the faulting instruction and the one behind it are discarded, the older one in WB still retires. The halt tests check this through the LEDs (a store behind the fault must not happen) and through the register file (the older instruction's result must be there, the faulting instruction's destination must keep a sentinel value), which the testbench reads after the halt via a debug port of the register file (unconnected on the board, so synthesis removes it).
 - **Register file** reads are asynchronous, so they map to logic elements rather than M9K blocks (whose reads are registered). About 1 k flip-flops is cheap on the 10M50 and keeps decode and register read in one stage.
 - **CRC-32 unit**: the eight shift/XOR steps of the bitwise algorithm are unrolled into one XOR network, so a byte is absorbed per cycle. It shows the B16 point about hardware acceleration: the speed-up is limited by how fast software can feed it.
 - **Verification strategy.** Three independent sources of truth: the expected values written into the self-checking tests, a Python model written from the specification (not translated from the VHDL), and the expected results in the C program, computed separately in Python (`zlib.crc32`, plain integer arithmetic). The model is itself checked against encodings produced by the LLVM assembler and against the tests' expectations, so a bug in the model cannot make a buggy core look correct. The mutation check confirms that the tests fail when the RTL is wrong. Its first runs found two gaps: an imprecise halt (the older instruction losing its register write) was invisible because nothing executes after a halt, and a JALR that kept bit 0 of its target was caught only by the model comparison, because instruction fetch ignores the low address bits. The register-file debug port and the AUIPC checks in `jump.S` close these gaps.

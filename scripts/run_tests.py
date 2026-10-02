@@ -237,6 +237,9 @@ def check_program(ghdl: Ghdl, prog: Program, trace: bool, out: Outcome) -> None:
         generics["UART_EXPECT_FILE"] = expect_file.resolve().as_posix()
     trace_file = BUILD / "trace" / f"{prog.name}.txt"
     if trace:
+        # A file left over from an earlier run must not stand in for one
+        # this run failed to write.
+        trace_file.unlink(missing_ok=True)
         trace_file.parent.mkdir(parents=True, exist_ok=True)
         generics["TRACE_FILE"] = trace_file.resolve().as_posix()
 
@@ -267,8 +270,11 @@ def check_program(ghdl: Ghdl, prog: Program, trace: bool, out: Outcome) -> None:
                     if line.startswith("uart| ")]
         if rtl_uart != model_uart:
             errors.append("UART output differs from the model")
-        if trace and trace_file.exists():
-            errors += compare_traces(trace_file.read_text().splitlines(), model.trace)
+        if trace:
+            if trace_file.exists():
+                errors += compare_traces(trace_file.read_text().splitlines(), model.trace)
+            else:
+                errors.append("tb_soc wrote no commit trace")
         if model.outcome.startswith("halt"):
             errors += check_halt_registers(text, prog, model.regs)
 

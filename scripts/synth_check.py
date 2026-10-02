@@ -25,13 +25,19 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from run_tests import ROOT, RTL_SOURCES  # noqa: E402
 
 TOP = "de10lite_top"
-# Memories that must be inferred, per source file and kind.
+# Memories that must be inferred, matched by kind and geometry (width, depth)
+# rather than by source file: GHDL 6 reports the program ROM once, in
+# rom_dp.vhd, while GHDL 4 (the Ubuntu package used in CI) splits it into one
+# ROM per read port and attributes them to the files that index the constant.
+# Each entry is (kind, width, depth): (minimum count, maximum count).
 EXPECTED = {
-    ("rom_dp.vhd", "ROM"): 1,   # one dual-port ROM
-    ("ram_be.vhd", "RAM"): 4,   # one RAM per byte lane
+    ("ROM", 32, 4096): (1, 2),  # program ROM: one dual-port, or one per port
+    ("RAM", 8, 4096): (4, 4),   # one RAM per byte lane
 }
-MEMORY_RE = re.compile(r"([\w.-]+\.vhd):\d+:\d+:note: found (ROM|RAM) \"([^\"]+)\", "
-                       r"width: (\d+) bits, depth: (\d+)")
+# Tolerant of the message prefix and name quoting, which vary between GHDL
+# releases (CI uses the older Ubuntu package).
+MEMORY_RE = re.compile(r"([\w.-]+\.vhd):\d+:\d+:\s*(?:note|info): found (ROM|RAM) "
+                       r"\"?([^\",]+)\"?, width: (\d+) bits, depth: (\d+)")
 
 
 def main() -> int:
@@ -65,10 +71,12 @@ def main() -> int:
     for file, kind, name, width, depth in memories:
         print(f"synth_check: {kind} {name} in {file}: {depth} x {width} bits")
     errors = []
-    for (file, kind), count in EXPECTED.items():
-        found = sum(1 for m in memories if (m[0], m[1]) == (file, kind))
-        if found != count:
-            errors.append(f"{found} {kind}s inferred in {file}, expected {count}")
+    for (kind, width, depth), (lo, hi) in EXPECTED.items():
+        found = sum(1 for m in memories
+                    if (m[1], int(m[3]), int(m[4])) == (kind, width, depth))
+        if not lo <= found <= hi:
+            want = str(lo) if lo == hi else f"{lo}..{hi}"
+            errors.append(f"{found} {depth} x {width} {kind}s inferred, expected {want}")
     errors += [f"latch: {line}" for line in log.splitlines() if "latch" in line.lower()]
 
     print(f"synth_check: {TOP}: netlist in {netlist.relative_to(ROOT).as_posix()}")

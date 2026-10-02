@@ -2,7 +2,9 @@
 """Checks that the test suite notices bugs: injects one fault at a time into
 a temporary copy of the RTL and runs scripts/run_tests.py on it.
 
-A mutation counts as detected if at least one testbench fails. The report
+A mutation counts as detected if at least one testbench fails. A mutation
+that stops the suite before any test runs (e.g. because the mutated code no
+longer analyses) is an error of this script, not a detection. The report
 also says whether a failure came from a self-check (a program's own result,
 a unit testbench, the expected UART text or LEDs) or only from the
 comparison with the reference model. The repository itself is never
@@ -82,6 +84,8 @@ MUTATIONS = [
     ("exceptions: misaligned loads not detected", "rtl/core/rv32i_core.vhd",
      "elsif ex_dec.is_load = '1' and is_misaligned(",
      "elsif false and is_misaligned("),
+    ("exceptions: the faulting instruction retires", "rtl/core/rv32i_core.vhd",
+     "wb_valid    <= ex_go;", "wb_valid    <= ex_valid;"),
     ("exceptions: halt is imprecise (older instruction dropped)", "rtl/core/rv32i_core.vhd",
      "rf_we <= wb_valid and wb_rd_we;",
      "rf_we <= wb_valid and wb_rd_we and not ex_fault;"),
@@ -121,14 +125,14 @@ def main() -> int:
                         help="only mutations whose name contains this text")
     args = parser.parse_args()
 
-    undetected = 0
+    undetected = aborted = 0
     selected = [m for m in MUTATIONS if args.filter.lower() in m[0].lower()]
     with tempfile.TemporaryDirectory() as tmp:
         tree = Path(tmp)
         for part in COPY:
             shutil.copytree(ROOT / part, tree / part)
         for name, file, old, new in selected:
-            pristine = (ROOT / file).read_text()
+            pristine = (tree / file).read_text()
             apply(tree, file, old, new)
             proc = subprocess.run(
                 [sys.executable, str(tree / "scripts" / "run_tests.py"),
@@ -150,10 +154,13 @@ def main() -> int:
                     self_checked = True
             if proc.returncode != 0 and not failing:
                 # run_tests.py stopped before running anything, e.g. because
-                # the mutated code does not analyse; show why.
-                failing = ["(suite aborted)"]
+                # the mutated code does not analyse: the mutation is broken,
+                # so it proves nothing about the tests.
+                aborted += 1
+                print(f"ABORTED    {name}")
                 for line in (proc.stdout + proc.stderr).strip().splitlines()[-8:]:
                     print(f"    {line}")
+                continue
             detected = proc.returncode != 0
             undetected += not detected
             how = "self-check" if self_checked else "model comparison only"
@@ -162,8 +169,9 @@ def main() -> int:
                   + (f"  [{how}: {shown}]" if detected else ""))
             sys.stdout.flush()
 
-    print(f"\n{len(selected) - undetected}/{len(selected)} mutations detected")
-    return 1 if undetected else 0
+    print(f"\n{len(selected) - undetected - aborted}/{len(selected)} mutations detected"
+          + (f", {aborted} did not analyse" if aborted else ""))
+    return 1 if undetected or aborted else 0
 
 
 if __name__ == "__main__":

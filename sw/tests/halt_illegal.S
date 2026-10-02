@@ -5,11 +5,14 @@
  * it. The halt must be precise: the store before the faulting instruction
  * has set the LEDs to 0x155 and the ADDI directly before it (in write-back
  * while the fault is detected) still retires; the store behind it, which
- * would set the LEDs to 0x156, never executes.
+ * would set the LEDs to 0x156, never executes. The faulting instruction
+ * must not write its destination either: x14 keeps its sentinel instead of
+ * becoming 3 + 4, which an RV32M MUL misdecoded as ADD would produce.
  *
  * @expect halt_illegal
  * @leds 0x155
  * @reg x7 0x156
+ * @reg x14 0x5a5
  */
 
 #include "test_macros.h"
@@ -18,6 +21,9 @@
     .globl _start
 _start:
     li   s1, MMIO_BASE
+    li   x1, 3
+    li   x2, 4
+    li   x14, 0x5a5
 
     li   t2, 0x155
     sw   t2, GPIO_OUT_OFF(s1)
